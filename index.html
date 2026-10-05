@@ -761,22 +761,7 @@ $("checkoutForm").addEventListener("submit",function(e){
   const lines=items.map(x=>`পণ্য: ${x.p.name}\nপরিমাণ: ${x.qty}\nদাম: ${money(x.p.price)}\nমোট: ${money(x.p.price*x.qty)}`).join("\n\n");
   const total=items.reduce((s,x)=>s+x.p.price*x.qty,0);
   const message=`🛍️ ${data.settings.storeName} অর্ডার\n\n👤 নাম: ${name}\n📱 মোবাইল: ${phone}\n📍 জেলা: ${district}\n🏢 থানা/উপজেলা: ${upazila}\n🏠 গ্রাম/এলাকা: ${village}\n📝 বিস্তারিত ঠিকানা: ${address||"দেওয়া হয়নি"}\n\n${lines}\n\n📏 সাইজ: ${size||"নির্বাচন করা হয়নি"}\n🎨 রঙ: ${color||"নির্বাচন করা হয়নি"}\n💬 নোট: ${note||"নেই"}\n\n💰 সর্বমোট: ${money(total)}\n\n✅ আমি অর্ডারটি নিশ্চিত করতে চাই।`;
-  const url=whatsappUrl(message);if(url==="#")return;
-  if(!supabaseReady)return showToast("অর্ডার সংরক্ষণের জন্য Supabase সংযোগ প্রয়োজন।","bad");
-  try{
-    const payload={p_customer_name:name,p_phone:phone,p_district:district,p_upazila:upazila,p_village:village,p_address:address||"",p_size:size||"",p_color:color||"",p_note:note||"",p_items:items.map(x=>({product_id:String(x.p.id),product_name:x.p.name,product_code:productCode(x.p),price:Number(x.p.price||0),quantity:Number(x.qty||1),image:productImage(x.p)})),p_total:Number(total||0)};
-    const saved=await cloudFetch('/rest/v1/rpc/place_order',{method:'POST',body:JSON.stringify(payload)});
-    const result=Array.isArray(saved)?saved[0]:saved;
-    if(!result||!result.order_id)throw new Error("অর্ডার সংরক্ষণ করা যায়নি।");
-    items.forEach(x=>{const p=data.products.find(p=>p.id===x.p.id);if(p)p.stock=Math.max(0,p.stock-Number(x.qty||0));});
-    data.cart=[];persist("order placed");renderAll();
-    window.open(url,"_blank");
-    showToast("অর্ডার সংরক্ষিত হয়েছে। স্টকও আপডেট হয়েছে।");
-    closeModal("checkoutModal");
-  }catch(err){
-    console.error("Order save failed",err);
-    showToast("অর্ডার সংরক্ষণ হয়নি: "+(err?.message||err),"bad");
-  }
+  const url=whatsappUrl(message);if(url!=="#")window.open(url,"_blank");
 });
 initCheckoutAddress();
 
@@ -1131,15 +1116,12 @@ function renderAdminPage(){
   if(fn)fn();
   renderAdminPreview();
 }
-async function renderDashboard(){
+function renderDashboard(){
   const stock=data.products.reduce((s,p)=>s+p.stock,0),low=data.products.filter(p=>p.stock>0&&p.stock<=5).length,featured=data.products.filter(p=>p.featured).length;
-  let sold=0,orderCount=0,salesTotal=0;
-  if(supabaseReady){try{const stats=await cloudFetch('/rest/v1/rpc/order_dashboard_stats',{method:'POST',body:'{}'});const x=Array.isArray(stats)?stats[0]:stats;sold=Number(x?.sold_units||0);orderCount=Number(x?.order_count||0);salesTotal=Number(x?.sales_total||0);}catch(e){console.warn('Order stats unavailable',e)}}
   $("adminContent").innerHTML=`<div class="stats">
     <div class="stat"><span>Total Products</span><strong>${data.products.length}</strong></div><div class="stat"><span>Total Categories</span><strong>${data.categories.length}</strong></div>
     <div class="stat"><span>Total Collections</span><strong>${data.collections.length}</strong></div><div class="stat"><span>Total Stock</span><strong>${stock}</strong></div>
     <div class="stat"><span>Low Stock</span><strong>${low}</strong></div><div class="stat"><span>Featured</span><strong>${featured}</strong></div>
-    <div class="stat"><span>বিক্রি হয়েছে</span><strong>${sold}</strong></div><div class="stat"><span>অর্ডার</span><strong>${orderCount}</strong></div><div class="stat"><span>বিক্রির মোট</span><strong>${money(salesTotal)}</strong></div>
   </div>
   <div class="admin-panel"><div class="panel-head"><h3>Quick actions</h3></div><div style="display:flex;gap:9px;flex-wrap:wrap">
     <button class="btn btn-primary" onclick="openProductForm()">+ Add Product</button><button class="btn btn-outline" onclick="goAdmin('products')">Products</button><button class="btn btn-outline" onclick="goAdmin('categories')">Categories</button><button class="btn btn-outline" onclick="goAdmin('collections')">Collections</button><button class="btn btn-outline" onclick="goAdmin('hero')">Hero</button><button class="btn btn-outline" onclick="goAdmin('colors')">Colors</button><button class="btn btn-outline" onclick="goAdmin('settings')">Settings</button><button class="btn btn-outline" onclick="goAdmin('backup')">Backup</button><button class="btn btn-outline" onclick="goAdmin('moderators')">Moderators</button>
@@ -1243,16 +1225,12 @@ async function toggleStoreSection(id){
   const x=(data.settings.sections||[]).find(s=>s.id===id);if(!x)return;x.visible=x.visible===false;const ok=await saveDesignState('section visibility');showToast(ok?'Section visibility saved':'Section visibility saved locally, but cloud save failed.',ok?'good':'bad');
 }
 
-async function renderOrders(){
-  const n=data.settings.whatsapp||"Not configured";let rows=[];
-  if(supabaseReady){try{rows=await cloudFetch('/rest/v1/orders?select=*&order=created_at.desc&limit=50');}catch(e){console.warn('Orders unavailable',e)}}
-  const list=Array.isArray(rows)?rows:[];
-  $("adminContent").innerHTML=`<div class="admin-panel"><div class="panel-head"><h3>অর্ডার / WhatsApp Info</h3><button class="btn btn-outline" onclick="goAdmin('settings')">Settings</button></div>
-  <p class="muted">WhatsApp-এ পাঠানোর আগে প্রতিটি অর্ডার Supabase-এ সংরক্ষণ হয় এবং স্টক অটোমেটিক কমে যায়।</p>
-  <div style="padding:15px;background:#f7f4ef;border-radius:12px"><strong>WhatsApp:</strong> ${escapeHtml(n)}<br><span class="muted">মোট সংরক্ষিত অর্ডার: ${list.length}</span></div></div>
-  <div class="admin-panel"><div class="panel-head"><h3>সাম্প্রতিক অর্ডার</h3></div>
-  ${list.length?list.map(o=>{let items=[];try{items=typeof o.items==='string'?JSON.parse(o.items):(o.items||[])}catch(_){}return `<div style="padding:14px 0;border-bottom:1px solid var(--border)"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><strong>${escapeHtml(o.customer_name||'—')}</strong><span class="muted">${escapeHtml(new Date(o.created_at).toLocaleString('bn-BD'))}</span></div><div class="muted" style="margin-top:5px">📱 ${escapeHtml(o.phone||'')} · 📍 ${escapeHtml(o.district||'')} · ${escapeHtml(o.upazila||'')}</div><div style="margin-top:7px">${items.map(i=>`<span style="display:inline-block;margin:3px 5px 3px 0;padding:6px 9px;background:#f7f4ef;border-radius:8px">${escapeHtml(i.product_name||'')} × ${Number(i.quantity||0)}</span>`).join('')}</div><strong style="display:block;margin-top:7px">মোট: ${money(o.total||0)}</strong></div>`}).join(''):`<div class="empty"><strong>এখনও কোনো অর্ডার নেই</strong><p class="muted">কাস্টমার Buy Now → Confirm Order করলে এখানে অর্ডার দেখা যাবে।</p></div>`}
-  </div>`;
+function renderOrders(){
+  const n=data.settings.whatsapp||"Not configured";
+  $("adminContent").innerHTML=`<div class="admin-panel"><div class="panel-head"><h3>WhatsApp ordering</h3><button class="btn btn-outline" onclick="goAdmin('settings')">Edit Settings</button></div>
+  <p class="muted">Orders are intentionally handled through WhatsApp; there is no payment gateway in this free frontend-only version.</p>
+  <div style="padding:15px;background:#f7f4ef;border-radius:12px"><strong>WhatsApp number:</strong> ${escapeHtml(n)}<br><span class="muted">Customers receive a pre-filled message containing products, quantities and totals.</span></div></div>
+  <div class="admin-panel"><h3 style="font-family:'DM Sans';font-size:16px">Example order message</h3><pre style="white-space:pre-wrap;background:#f7f4ef;padding:14px;border-radius:10px;font:12px/1.6 monospace">Hello ${escapeHtml(data.settings.storeName)},\n\nI would like to order:\n\nProduct: Premium Shirt\nQuantity: 2\nPrice: ${money(49)}\n\nTotal: ${money(98)}\n\nPlease confirm my order.</pre></div>`;
 }
 function renderAdminHero(){
   $("adminContent").innerHTML=`<div class="admin-panel"><div class="panel-head"><h3>Hero Banner Editor</h3></div>
